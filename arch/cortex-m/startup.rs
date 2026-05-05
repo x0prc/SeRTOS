@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use crate::timer;
 use core::ptr::{copy_nonoverlapping, write_bytes, write_volatile};
 
 // Cortex-M3 System Control Block register used to relocate the vector table.
@@ -180,7 +181,9 @@ pub extern "C" fn PendSV_Handler() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn SysTick_Handler() {
-    Default_Handler();
+    // Keep the architectural handler tiny and delegate state updates into the
+    // Rust timer module so boot logic stays out of the vector file.
+    timer::on_systick();
 }
 
 #[unsafe(no_mangle)]
