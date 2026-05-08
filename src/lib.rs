@@ -6,6 +6,7 @@ use core::panic::PanicInfo;
 pub mod startup;
 
 pub mod timer;
+pub mod task;
 pub mod uart;
 
 // Reset_Handler transfers control here after minimal runtime initialization.
