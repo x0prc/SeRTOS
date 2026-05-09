@@ -3,6 +3,13 @@ use core::ptr::null_mut;
 // Tasks run as plain entry functions until the scheduler grows argument passing.
 pub type TaskEntry = extern "C" fn() -> !;
 
+// PendSV will later restore these callee-saved registers in software.
+const SOFTWARE_FRAME_WORDS: usize = 8;
+// Exception return restores these registers in hardware on Cortex-M.
+const HARDWARE_FRAME_WORDS: usize = 8;
+const INITIAL_FRAME_WORDS: usize = SOFTWARE_FRAME_WORDS + HARDWARE_FRAME_WORDS;
+const INITIAL_XPSR: u32 = 0x0100_0000;
+
 // Small wrapper so task indices do not get passed around as raw integers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TaskId(pub usize);
@@ -14,6 +21,12 @@ pub enum TaskState {
     Ready,
     Running,
     Exited,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskInitError {
+    StackTooSmall,
+    MisalignedStack,
 }
 
 // Scheduler-owned task record. The saved PSP points into `stack` once stack
@@ -70,6 +83,34 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         self.entry = None;
     }
 
+    pub fn prepare(&mut self, entry: TaskEntry) -> Result<(), TaskInitError> {
+        if STACK_WORDS < INITIAL_FRAME_WORDS {
+            return Err(TaskInitError::StackTooSmall);
+        }
+
+        self.reset_runtime_state();
+        self.entry = Some(entry);
+
+        let frame = &mut self.stack[STACK_WORDS - INITIAL_FRAME_WORDS..];
+        frame.fill(0);
+
+        // Layout matches the PSP image PendSV will later consume: software-saved
+        // r4-r11 first, then the hardware exception frame used on exception return.
+        frame[SOFTWARE_FRAME_WORDS + 5] = task_exit_trap as *const () as usize as u32;
+        frame[SOFTWARE_FRAME_WORDS + 6] = entry as *const () as usize as u32;
+        frame[SOFTWARE_FRAME_WORDS + 7] = INITIAL_XPSR;
+
+        let saved_psp = frame.as_mut_ptr();
+        if (saved_psp as usize) & 0x7 != 0 {
+            return Err(TaskInitError::MisalignedStack);
+        }
+
+        self.saved_psp = saved_psp;
+        self.state = TaskState::Ready;
+
+        Ok(())
+    }
+
     pub fn stack_words(&self) -> &[u32; STACK_WORDS] {
         &self.stack
     }
@@ -95,5 +136,12 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         self.saved_psp = null_mut();
         self.entry = None;
         self.stack.fill(0);
+    }
+}
+
+extern "C" fn task_exit_trap() -> ! {
+    // Returning from a task is a scheduler bug until task teardown exists.
+    loop {
+        core::hint::spin_loop();
     }
 }
