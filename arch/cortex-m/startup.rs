@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::timer;
+use crate::{context, timer};
 use core::ptr::{copy_nonoverlapping, write_bytes, write_volatile};
 
 // Cortex-M3 System Control Block register used to relocate the vector table.
@@ -92,7 +92,7 @@ pub static VECTOR_TABLE: [Vector; 16] = [
         reserved: core::ptr::null(),
     },
     Vector {
-        handler: PendSV_Handler,
+        reserved: context::PendSV_Handler as *const (),
     },
     Vector {
         handler: SysTick_Handler,
@@ -171,11 +171,6 @@ pub extern "C" fn SVC_Handler() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn DebugMon_Handler() {
-    Default_Handler();
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn PendSV_Handler() {
     Default_Handler();
 }
 

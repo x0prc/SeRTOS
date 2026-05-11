@@ -4,6 +4,8 @@ use core::panic::PanicInfo;
 
 #[path = "../arch/cortex-m/startup.rs"]
 pub mod startup;
+#[path = "../arch/cortex-m/context.rs"]
+pub mod context;
 
 pub mod timer;
 pub mod task;
@@ -17,6 +19,10 @@ pub extern "Rust" fn kmain() -> ! {
     // Bring up serial first so every later step can report progress.
     uart::init();
     uart::log_line(format_args!("SeRTOS boot"));
+
+    // PendSV must stay at the lowest exception priority once task switching
+    // starts so higher-priority interrupts are never delayed by a reschedule.
+    context::init();
 
     // Start the architectural timer once logging is ready.
     timer::init();

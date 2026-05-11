@@ -67,6 +67,10 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         self.saved_psp
     }
 
+    pub fn saved_psp_slot(&mut self) -> *mut *mut u32 {
+        &raw mut self.saved_psp
+    }
+
     pub fn set_saved_psp(&mut self, saved_psp: *mut u32) {
         self.saved_psp = saved_psp;
     }
