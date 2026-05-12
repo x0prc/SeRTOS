@@ -44,6 +44,54 @@ pub fn trigger_pendsv() {
     }
 }
 
+#[unsafe(naked)]
+pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
+    naked_asm!(
+        // First launch consumes the synthesized task frame directly from RAM,
+        // then switches thread mode onto PSP before branching to the task entry.
+        "mov r12, r0",
+        "ldmia r12!, {{r4-r11}}",
+        "ldr r0, [r12, #0]",
+        "ldr r1, [r12, #4]",
+        "ldr r2, [r12, #8]",
+        "ldr r3, [r12, #12]",
+        "ldr r4, [r12, #16]",
+        "ldr r5, [r12, #20]",
+        "ldr r6, [r12, #24]",
+        "add r7, r12, #32",
+        "msr psp, r7",
+        "movs r7, #2",
+        "msr control, r7",
+        "isb",          // ensures all previous instructions are completed before executing new ones.
+        "mov r12, r4",
+        "mov lr, r5",
+        "bx r6",
+    );
+}
+
+#[unsafe(no_mangle)]
+#[unsafe(naked)]
+pub unsafe extern "C" fn SVC_Handler() {
+    naked_asm!(
+        "mrs r0, psp",
+        "ldr r1, =PENDSV_CURRENT_PSP_SLOT",
+        "ldr r1, [r1]",
+        "cbz r1, 2f",
+        "stmdb r0!, {{r4-r11}}",
+        "str r0, [r1]",
+        "2:",
+        "ldr r1, =PENDSV_NEXT_PSP",
+        "ldr r0, [r1]",
+        "cbz r0, 3f",
+        "ldmia r0!, {{r4-r11}}",
+        "msr psp, r0",
+        "movs r2, #0",
+        "str r2, [r1]",
+        "3:",
+        "bx lr",
+    );
+}
+
 #[unsafe(no_mangle)]
 #[unsafe(naked)]
 pub unsafe extern "C" fn PendSV_Handler() {

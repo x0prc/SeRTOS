@@ -84,7 +84,9 @@ pub static VECTOR_TABLE: [Vector; 16] = [
     Vector {
         reserved: core::ptr::null(),
     },
-    Vector { handler: SVC_Handler },
+    Vector {
+        reserved: context::SVC_Handler as *const (),
+    },
     Vector {
         handler: DebugMon_Handler,
     },
@@ -161,11 +163,6 @@ pub extern "C" fn BusFault_Handler() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UsageFault_Handler() {
-    Default_Handler();
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn SVC_Handler() {
     Default_Handler();
 }
 

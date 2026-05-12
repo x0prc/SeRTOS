@@ -7,13 +7,14 @@ pub mod startup;
 #[path = "../arch/cortex-m/context.rs"]
 pub mod context;
 
+pub mod scheduler;
 pub mod timer;
 pub mod task;
 pub mod uart;
 
 // Reset_Handler transfers control here after minimal runtime initialization.
-// At this stage we also bring up serial logging and a periodic timer so the
-// boot path is externally visible before any scheduler exists.
+// After early device bring-up we create a couple of cooperative demo tasks and
+// hand control over to the scheduler.
 #[unsafe(no_mangle)]
 pub extern "Rust" fn kmain() -> ! {
     // Bring up serial first so every later step can report progress.
@@ -28,20 +29,36 @@ pub extern "Rust" fn kmain() -> ! {
     timer::init();
     uart::log_line(format_args!("SysTick enabled"));
 
-    // Report every 100 ticks to prove the interrupt keeps firing without
-    // spamming the console on every handler entry.
-    let mut next_report = 100;
+    scheduler::spawn(task_a).expect("failed to spawn task A");
+    scheduler::spawn(task_b).expect("failed to spawn task B");
+    uart::log_line(format_args!("Starting cooperative scheduler"));
+
+    scheduler::start();
+}
+
+extern "C" fn task_a() -> ! {
+    let mut iteration = 0u32;
 
     loop {
-        // Poll the counter updated by the interrupt handler.
-        let ticks = timer::tick_count();
-        if ticks >= next_report {
-            uart::log_line(format_args!("tick {}", ticks));
-            next_report = ticks.saturating_add(100);
+        if iteration % 50 == 0 {
+            uart::log_line(format_args!("task A iteration {} tick {}", iteration, timer::tick_count()));
         }
 
-        // There is no scheduler yet, so idle is just a polite busy loop.
-        core::hint::spin_loop();
+        iteration = iteration.wrapping_add(1);
+        scheduler::yield_now();
+    }
+}
+
+extern "C" fn task_b() -> ! {
+    let mut iteration = 0u32;
+
+    loop {
+        if iteration % 50 == 0 {
+            uart::log_line(format_args!("task B iteration {} tick {}", iteration, timer::tick_count()));
+        }
+
+        iteration = iteration.wrapping_add(1);
+        scheduler::yield_now();
     }
 }
 
