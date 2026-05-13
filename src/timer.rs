@@ -1,3 +1,4 @@
+use crate::scheduler;
 use core::ptr::write_volatile;
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -41,4 +42,5 @@ pub fn tick_count() -> u32 {
 // Called by the SysTick exception handler.
 pub fn on_systick() {
     TICKS.fetch_add(1, Ordering::Relaxed);
+    scheduler::on_tick();
 }

@@ -58,7 +58,9 @@ extern "C" fn task_b() -> ! {
         }
 
         iteration = iteration.wrapping_add(1);
-        scheduler::yield_now();
+        for _ in 0..10_000 {
+            core::hint::spin_loop();
+        }
     }
 }
 
