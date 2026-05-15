@@ -27,7 +27,13 @@ pub extern "Rust" fn kmain() -> ! {
 
     // Start the architectural timer once logging is ready.
     timer::init();
-    uart::log_line(format_args!("SysTick enabled"));
+    uart::log_line(format_args!(
+        "SysTick enabled: cpu={}Hz tick={}Hz reload={} 1ms={}tick",
+        timer::cpu_hz(),
+        timer::ticks_per_second(),
+        (timer::cpu_hz() / timer::ticks_per_second()) - 1,
+        timer::ms_to_ticks(1),
+    ));
 
     scheduler::spawn(task_a).expect("failed to spawn task A");
     scheduler::spawn(task_b).expect("failed to spawn task B");

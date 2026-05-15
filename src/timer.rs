@@ -14,8 +14,10 @@ const CSR_TICKINT: u32 = 1 << 1;
 // Use the processor clock as the SysTick source.
 const CSR_CLKSOURCE: u32 = 1 << 2;
 
-// A simple bring-up interval: frequent enough to prove interrupts work
-const SYSTICK_RELOAD: u32 = 80_000 - 1;
+// QEMU's lm3s6965evb machine commonly runs the Cortex-M3 core at 8 MHz.
+const CPU_HZ: u32 = 8_000_000;
+pub const TICK_HZ: u32 = 1_000;
+const SYSTICK_RELOAD: u32 = (CPU_HZ / TICK_HZ) - 1;
 
 // Global monotonic tick count updated from the SysTick handler.
 static TICKS: AtomicU32 = AtomicU32::new(0);
@@ -32,6 +34,22 @@ pub fn init() {
         // Leave global interrupt masking so the core can actually take SysTick.
         core::arch::asm!("cpsie i", options(nomem, nostack, preserves_flags));
     }
+}
+
+pub const fn cpu_hz() -> u32 {
+    CPU_HZ
+}
+
+pub const fn ticks_per_second() -> u32 {
+    TICK_HZ
+}
+
+pub const fn ms_to_ticks(ms: u32) -> u32 {
+    ms.saturating_mul(TICK_HZ).div_ceil(1_000)
+}
+
+pub const fn ticks_to_ms(ticks: u32) -> u32 {
+    ticks.saturating_mul(1_000) / TICK_HZ
 }
 
 // Read the current tick count from non-interrupt context.
