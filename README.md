@@ -32,3 +32,7 @@ RTOS with deadline-aware IPC and built-in execution tracing
    - updates the current task’s time slice
    - if the slice expires, it requests a PendSV context switch
 10. `PendSV_Handler` performs the actual register save/restore and task switch.
+
+## References 
+[freertos.rs](https://github.com/hashmismatch/freertos.rs)
+[Kernel](https://github.com/FreeRTOS/FreeRTOS-Kernel)
