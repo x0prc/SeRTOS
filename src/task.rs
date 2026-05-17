@@ -20,6 +20,7 @@ pub enum TaskState {
     Dormant,
     Ready,
     Running,
+    Sleeping,
     Exited,
 }
 
@@ -35,6 +36,7 @@ pub enum TaskInitError {
 pub struct TaskControlBlock<const STACK_WORDS: usize> {
     id: TaskId,
     state: TaskState,
+    wake_tick: Option<u32>,
     saved_psp: *mut u32,
     entry: Option<TaskEntry>,
     stack: [u32; STACK_WORDS],
@@ -45,6 +47,7 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         Self {
             id,
             state: TaskState::Dormant,
+            wake_tick: None,
             saved_psp: null_mut(),
             entry: None,
             stack: [0; STACK_WORDS],
@@ -61,6 +64,14 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
     pub fn set_state(&mut self, state: TaskState) {
         self.state = state;
+    }
+
+    pub fn wake_tick(&self) -> Option<u32> {
+        self.wake_tick
+    }
+
+    pub fn set_wake_tick(&mut self, wake_tick: Option<u32>) {
+        self.wake_tick = wake_tick;
     }
 
     pub fn saved_psp(&self) -> *mut u32 {
@@ -110,6 +121,7 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         }
 
         self.saved_psp = saved_psp;
+        self.wake_tick = None;
         self.state = TaskState::Ready;
 
         Ok(())
@@ -137,6 +149,7 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
     pub fn reset_runtime_state(&mut self) {
         self.state = TaskState::Dormant;
+        self.wake_tick = None;
         self.saved_psp = null_mut();
         self.entry = None;
         self.stack.fill(0);

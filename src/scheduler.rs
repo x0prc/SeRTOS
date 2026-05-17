@@ -1,10 +1,13 @@
 use crate::context;
+use crate::timer;
 use crate::task::{TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskState};
 use core::arch::asm;
 
-pub const MAX_TASKS: usize = 2;
+pub const USER_TASKS: usize = 2;
+pub const MAX_TASKS: usize = USER_TASKS + 1;
 pub const TASK_STACK_WORDS: usize = 256;
 pub const TIME_SLICE_TICKS: u32 = 10;
+const IDLE_TASK_INDEX: usize = MAX_TASKS - 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpawnError {
@@ -15,6 +18,7 @@ pub enum SpawnError {
 static mut TASKS: [TaskControlBlock<TASK_STACK_WORDS>; MAX_TASKS] = [
     TaskControlBlock::new(TaskId(0)),
     TaskControlBlock::new(TaskId(1)),
+    TaskControlBlock::new(TaskId(2)),
 ];
 static mut CURRENT_TASK: Option<usize> = None;
 static mut REMAINING_SLICE_TICKS: u32 = TIME_SLICE_TICKS;
@@ -23,7 +27,7 @@ pub fn spawn(entry: TaskEntry) -> Result<TaskId, SpawnError> {
     unsafe {
         // Cooperative bring-up uses a fixed task table so spawn is just a scan
         // for the next dormant slot with no allocator involvement.
-        for index in 0..MAX_TASKS {
+        for index in 0..USER_TASKS {
             let task = &mut TASKS[index];
             if task.state() != TaskState::Dormant {
                 continue;
@@ -38,6 +42,10 @@ pub fn spawn(entry: TaskEntry) -> Result<TaskId, SpawnError> {
 }
 
 pub fn start() -> ! {
+    unsafe {
+        prepare_idle_task();
+    }
+
     let first = unsafe { next_ready_after(None) }.expect("scheduler started without ready tasks");
 
     unsafe {
@@ -52,7 +60,7 @@ pub fn start() -> ! {
 
 pub fn yield_now() {
     unsafe {
-        if switch_to_next(false) {
+        if switch_to_next(TaskState::Ready, false) {
             // SVC makes cooperative yield synchronous so the current task cannot
             // run any more thread-mode instructions after it gives up the CPU.
             asm!("svc 0", options(nomem, nostack));
@@ -60,18 +68,63 @@ pub fn yield_now() {
     }
 }
 
-pub fn on_tick() {
+pub fn sleep_ticks(ticks: u32) {
+    if ticks == 0 {
+        // Zero-length sleep acts like a cooperative yield so callers can use
+        // the same API shape for both timed and immediate relinquish points.
+        yield_now();
+        return;
+    }
+
     unsafe {
-        let Some(_) = CURRENT_TASK else {
+        let Some(current) = CURRENT_TASK else {
             return;
         };
+
+        // Wake times are tracked in absolute ticks so later timeout handling can
+        // use the same model for relative sleeps and explicit deadlines.
+        let wake_tick = timer::tick_count().wrapping_add(ticks);
+        TASKS[current].set_wake_tick(Some(wake_tick));
+
+        if switch_to_next(TaskState::Sleeping, false) {
+            asm!("svc 0", options(nomem, nostack));
+        } else {
+            // This only happens if no alternate runnable task exists yet. In
+            // that case keep the caller running instead of sleeping forever.
+            TASKS[current].set_wake_tick(None);
+            TASKS[current].set_state(TaskState::Running);
+        }
+    }
+}
+
+pub fn sleep_ms(ms: u32) {
+    sleep_ticks(timer::ms_to_ticks(ms));
+}
+
+pub fn on_tick() {
+    unsafe {
+        let now = timer::tick_count();
+        let woke_tasks = wake_ready_tasks(now);
+
+        let Some(current) = CURRENT_TASK else {
+            return;
+        };
+
+        // If the core is idling and a sleeper becomes ready, reschedule right
+        // away instead of waiting for the idle task's time slice to expire.
+        if is_idle_task(current) && woke_tasks {
+            if switch_to_next(TaskState::Ready, true) {
+                context::trigger_pendsv();
+            }
+            return;
+        }
 
         if REMAINING_SLICE_TICKS > 1 {
             REMAINING_SLICE_TICKS -= 1;
             return;
         }
 
-        if switch_to_next(true) {
+        if switch_to_next(TaskState::Ready, true) {
             context::trigger_pendsv();
         } else {
             REMAINING_SLICE_TICKS = TIME_SLICE_TICKS;
@@ -79,7 +132,7 @@ pub fn on_tick() {
     }
 }
 
-unsafe fn switch_to_next(from_interrupt: bool) -> bool {
+unsafe fn switch_to_next(current_state: TaskState, from_interrupt: bool) -> bool {
     let Some(current) = (unsafe { CURRENT_TASK }) else {
         return false;
     };
@@ -96,8 +149,9 @@ unsafe fn switch_to_next(from_interrupt: bool) -> bool {
     }
 
     unsafe {
-        TASKS[current].set_state(TaskState::Ready);
+        TASKS[current].set_state(current_state);
         TASKS[next].set_state(TaskState::Running);
+        TASKS[next].set_wake_tick(None);
         CURRENT_TASK = Some(next);
         REMAINING_SLICE_TICKS = TIME_SLICE_TICKS;
     }
@@ -131,4 +185,55 @@ unsafe fn next_ready_after(current: Option<usize>) -> Option<usize> {
     }
 
     None
+}
+
+unsafe fn prepare_idle_task() {
+    if unsafe { TASKS[IDLE_TASK_INDEX].state() } == TaskState::Dormant {
+        // The reserved final slot is never exposed through spawn(); it exists so
+        // the scheduler always has a safe task to run while all user tasks sleep.
+        let _ = unsafe { TASKS[IDLE_TASK_INDEX].prepare(idle_task) };
+    }
+}
+
+unsafe fn wake_ready_tasks(now: u32) -> bool {
+    let mut woke_any = false;
+
+    for index in 0..MAX_TASKS {
+        let task = unsafe { &mut TASKS[index] };
+        if task.state() != TaskState::Sleeping {
+            continue;
+        }
+
+        let Some(wake_tick) = task.wake_tick() else {
+            continue;
+        };
+
+        if tick_deadline_reached(now, wake_tick) {
+            task.set_wake_tick(None);
+            task.set_state(TaskState::Ready);
+            woke_any = true;
+        }
+    }
+
+    woke_any
+}
+
+fn tick_deadline_reached(now: u32, wake_tick: u32) -> bool {
+    // Wrapping subtraction keeps relative wake comparisons valid across u32
+    // rollover as long as sleeps stay well below half the counter range.
+    now.wrapping_sub(wake_tick) < (u32::MAX / 2)
+}
+
+fn is_idle_task(index: usize) -> bool {
+    index == IDLE_TASK_INDEX
+}
+
+extern "C" fn idle_task() -> ! {
+    loop {
+        unsafe {
+            // Idle should sleep until the next interrupt so blocked-task waits do
+            // not degenerate into a hot spin while the system is otherwise idle.
+            asm!("wfi", options(nomem, nostack, preserves_flags));
+        }
+    }
 }

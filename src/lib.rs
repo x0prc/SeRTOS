@@ -46,12 +46,10 @@ extern "C" fn task_a() -> ! {
     let mut iteration = 0u32;
 
     loop {
-        if iteration % 50 == 0 {
-            uart::log_line(format_args!("task A iteration {} tick {}", iteration, timer::tick_count()));
-        }
+        uart::log_line(format_args!("task A iteration {} tick {}", iteration, timer::tick_count()));
 
         iteration = iteration.wrapping_add(1);
-        scheduler::yield_now();
+        timer::delay_ms(100);
     }
 }
 
@@ -59,14 +57,10 @@ extern "C" fn task_b() -> ! {
     let mut iteration = 0u32;
 
     loop {
-        if iteration % 50 == 0 {
-            uart::log_line(format_args!("task B iteration {} tick {}", iteration, timer::tick_count()));
-        }
+        uart::log_line(format_args!("task B iteration {} tick {}", iteration, timer::tick_count()));
 
         iteration = iteration.wrapping_add(1);
-        for _ in 0..10_000 {
-            core::hint::spin_loop();
-        }
+        timer::sleep_ms(250);
     }
 }
 

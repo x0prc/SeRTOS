@@ -52,6 +52,25 @@ pub const fn ticks_to_ms(ticks: u32) -> u32 {
     ticks.saturating_mul(1_000) / TICK_HZ
 }
 
+// Relative sleep blocks the current task until the kernel tick reaches the
+// requested wake time.
+pub fn sleep_ticks(ticks: u32) {
+    scheduler::sleep_ticks(ticks);
+}
+
+pub fn sleep_ms(ms: u32) {
+    sleep_ticks(ms_to_ticks(ms));
+}
+
+// For now delay is just the task-facing relative sleep API under a clearer name.
+pub fn delay_ticks(ticks: u32) {
+    sleep_ticks(ticks);
+}
+
+pub fn delay_ms(ms: u32) {
+    sleep_ms(ms);
+}
+
 // Read the current tick count from non-interrupt context.
 pub fn tick_count() -> u32 {
     TICKS.load(Ordering::Relaxed)
