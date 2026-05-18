@@ -76,22 +76,28 @@ pub fn sleep_ticks(ticks: u32) {
         return;
     }
 
+    sleep_until(timer::deadline_after_ticks(ticks));
+}
+
+pub fn sleep_until(deadline: timer::Deadline) {
     unsafe {
         let Some(current) = CURRENT_TASK else {
             return;
         };
 
-        // Wake times are tracked in absolute ticks so later timeout handling can
-        // use the same model for relative sleeps and explicit deadlines.
-        let wake_tick = timer::tick_count().wrapping_add(ticks);
-        TASKS[current].set_wake_tick(Some(wake_tick));
+        if deadline.is_reached(timer::tick_count()) {
+            yield_now();
+            return;
+        }
+
+        TASKS[current].set_wake_deadline(Some(deadline));
 
         if switch_to_next(TaskState::Sleeping, false) {
             asm!("svc 0", options(nomem, nostack));
         } else {
             // This only happens if no alternate runnable task exists yet. In
             // that case keep the caller running instead of sleeping forever.
-            TASKS[current].set_wake_tick(None);
+            TASKS[current].set_wake_deadline(None);
             TASKS[current].set_state(TaskState::Running);
         }
     }
@@ -151,7 +157,7 @@ unsafe fn switch_to_next(current_state: TaskState, from_interrupt: bool) -> bool
     unsafe {
         TASKS[current].set_state(current_state);
         TASKS[next].set_state(TaskState::Running);
-        TASKS[next].set_wake_tick(None);
+        TASKS[next].set_wake_deadline(None);
         CURRENT_TASK = Some(next);
         REMAINING_SLICE_TICKS = TIME_SLICE_TICKS;
     }
@@ -204,24 +210,18 @@ unsafe fn wake_ready_tasks(now: u32) -> bool {
             continue;
         }
 
-        let Some(wake_tick) = task.wake_tick() else {
+        let Some(wake_deadline) = task.wake_deadline() else {
             continue;
         };
 
-        if tick_deadline_reached(now, wake_tick) {
-            task.set_wake_tick(None);
+        if wake_deadline.is_reached(now) {
+            task.set_wake_deadline(None);
             task.set_state(TaskState::Ready);
             woke_any = true;
         }
     }
 
     woke_any
-}
-
-fn tick_deadline_reached(now: u32, wake_tick: u32) -> bool {
-    // Wrapping subtraction keeps relative wake comparisons valid across u32
-    // rollover as long as sleeps stay well below half the counter range.
-    now.wrapping_sub(wake_tick) < (u32::MAX / 2)
 }
 
 fn is_idle_task(index: usize) -> bool {
