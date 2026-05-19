@@ -228,8 +228,45 @@ fn is_idle_task(index: usize) -> bool {
     index == IDLE_TASK_INDEX
 }
 
+fn next_sleep_deadline() -> Option<timer::Deadline> {
+    let now = timer::tick_count();
+    let mut nearest: Option<timer::Deadline> = None;
+
+    unsafe {
+        for index in 0..MAX_TASKS {
+            let task = &TASKS[index];
+            if task.state() != TaskState::Sleeping {
+                continue;
+            }
+
+            let Some(deadline) = task.wake_deadline() else {
+                continue;
+            };
+
+            if deadline.is_reached(now) {
+                return Some(deadline);
+            }
+
+            nearest = match nearest {
+                Some(current) if current.remaining_ticks(now) <= deadline.remaining_ticks(now) => {
+                    Some(current)
+                }
+                _ => Some(deadline),
+            };
+        }
+    }
+
+    nearest
+}
+
 extern "C" fn idle_task() -> ! {
     loop {
+        if let Some(deadline) = next_sleep_deadline() {
+            // When only idle is runnable, stretch the next SysTick interrupt to
+            // the nearest wake deadline instead of taking every 1 ms tick.
+            timer::begin_tickless_idle(deadline);
+        }
+
         unsafe {
             // Idle should sleep until the next interrupt so blocked-task waits do
             // not degenerate into a hot spin while the system is otherwise idle.

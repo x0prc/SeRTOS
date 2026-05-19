@@ -23,9 +23,14 @@ const CSR_CLKSOURCE: u32 = 1 << 2;
 const CPU_HZ: u32 = 8_000_000;
 pub const TICK_HZ: u32 = 1_000;
 const SYSTICK_RELOAD: u32 = (CPU_HZ / TICK_HZ) - 1;
+const SYSTICK_MAX_RELOAD: u32 = 0x00FF_FFFF;
+const MAX_SUPPRESSED_TICKS: u32 = (SYSTICK_MAX_RELOAD + 1) / (SYSTICK_RELOAD + 1);
 
 // Global monotonic tick count updated from the SysTick handler.
 static TICKS: AtomicU32 = AtomicU32::new(0);
+// SysTick normally advances one kernel tick per interrupt, but tickless idle can
+// temporarily stretch that interval while only the idle task is runnable.
+static TICK_STEP: AtomicU32 = AtomicU32::new(1);
 
 // Program SysTick and unmask interrupts so periodic exceptions can fire.
 pub fn init() {
@@ -49,6 +54,10 @@ pub const fn ticks_per_second() -> u32 {
     TICK_HZ
 }
 
+pub const fn max_suppressed_ticks() -> u32 {
+    MAX_SUPPRESSED_TICKS
+}
+
 pub const fn ms_to_ticks(ms: u32) -> u32 {
     ms.saturating_mul(TICK_HZ).div_ceil(1_000)
 }
@@ -67,6 +76,18 @@ pub fn deadline_after_ms(ms: u32) -> Deadline {
 
 pub fn deadline_reached(deadline: Deadline) -> bool {
     deadline.is_reached(tick_count())
+}
+
+pub fn begin_tickless_idle(deadline: Deadline) {
+    let remaining_ticks = deadline.remaining_ticks(tick_count());
+    if remaining_ticks <= 1 {
+        return;
+    }
+
+    let suppressed_ticks = remaining_ticks.min(MAX_SUPPRESSED_TICKS);
+    unsafe {
+        program_tick_interval(suppressed_ticks);
+    }
 }
 
 // Relative sleep blocks the current task until the kernel tick reaches the
@@ -141,6 +162,30 @@ pub fn tick_count() -> u32 {
 
 // Called by the SysTick exception handler.
 pub fn on_systick() {
-    TICKS.fetch_add(1, Ordering::Relaxed);
+    let elapsed_ticks = TICK_STEP.swap(1, Ordering::Relaxed);
+    if elapsed_ticks != 1 {
+        unsafe {
+            program_tick_interval(1);
+        }
+    }
+
+    TICKS.fetch_add(elapsed_ticks, Ordering::Relaxed);
     scheduler::on_tick();
+}
+
+unsafe fn program_tick_interval(ticks: u32) {
+    let ticks = ticks.clamp(1, MAX_SUPPRESSED_TICKS);
+    let reload = ticks.saturating_mul(SYSTICK_RELOAD + 1).saturating_sub(1);
+
+    // Rewrite SysTick as one coherent step so idle can extend the next wakeup
+    // without leaving a stale current count running against an old reload value.
+    unsafe {
+        write_volatile(SYST_CSR, 0);
+        write_volatile(SYST_RVR, reload);
+        write_volatile(SYST_CVR, 0);
+    }
+    TICK_STEP.store(ticks, Ordering::Relaxed);
+    unsafe {
+        write_volatile(SYST_CSR, CSR_CLKSOURCE | CSR_TICKINT | CSR_ENABLE);
+    }
 }
