@@ -1,4 +1,5 @@
 use crate::scheduler;
+use crate::sync;
 use core::ptr::write_volatile;
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -85,9 +86,9 @@ pub fn begin_tickless_idle(deadline: Deadline) {
     }
 
     let suppressed_ticks = remaining_ticks.min(MAX_SUPPRESSED_TICKS);
-    unsafe {
+    sync::with(|_| unsafe {
         program_tick_interval(suppressed_ticks);
-    }
+    });
 }
 
 // Relative sleep blocks the current task until the kernel tick reaches the

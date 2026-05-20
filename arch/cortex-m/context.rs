@@ -18,14 +18,46 @@ static mut PENDSV_NEXT_PSP: *mut u32 = null_mut();
 
 pub fn init() {
     unsafe {
+        // PendSV should always be the lowest-priority configurable exception so
+        // a deferred context switch never blocks higher-priority interrupt work.
         let shpr3 = read_volatile(SCB_SHPR3);
         let shpr3 = (shpr3 & !SHPR3_PENDSV_MASK) | SHPR3_PENDSV_LOWEST;
         write_volatile(SCB_SHPR3, shpr3);
     }
 }
 
+pub fn disable_interrupts() -> u32 {
+    let primask: u32;
+    unsafe {
+        core::arch::asm!(
+            // Capture the incoming interrupt mask before disabling interrupts so
+            // nested critical sections can later restore the original state.
+            "mrs {primask}, PRIMASK",
+            "cpsid i",
+            primask = out(reg) primask,
+            options(nomem, preserves_flags),
+        );
+    }
+
+    primask
+}
+
+pub fn restore_interrupts(primask: u32) {
+    unsafe {
+        core::arch::asm!(
+            // Restore the exact prior PRIMASK value rather than blindly enabling
+            // interrupts, because callers may already have entered with masking.
+            "msr PRIMASK, {primask}",
+            primask = in(reg) primask,
+            options(nomem, preserves_flags),
+        );
+    }
+}
+
 pub fn prepare_first_switch(next_psp: *mut u32) {
     unsafe {
+        // First task launch has no outgoing context, so only the incoming PSP is
+        // populated and the current-save slot is left null.
         PENDSV_CURRENT_PSP_SLOT = null_mut();
         PENDSV_NEXT_PSP = next_psp;
     }
@@ -33,6 +65,8 @@ pub fn prepare_first_switch(next_psp: *mut u32) {
 
 pub fn prepare_switch(current_psp_slot: *mut *mut u32, next_psp: *mut u32) {
     unsafe {
+        // SVC and PendSV both consume this same handoff state: where to save the
+        // outgoing PSP and which prepared PSP should be restored next.
         PENDSV_CURRENT_PSP_SLOT = current_psp_slot;
         PENDSV_NEXT_PSP = next_psp;
     }
@@ -40,6 +74,8 @@ pub fn prepare_switch(current_psp_slot: *mut *mut u32, next_psp: *mut u32) {
 
 pub fn trigger_pendsv() {
     unsafe {
+        // Setting PENDSVSET asks the core to take PendSV once higher-priority
+        // handlers complete, which is ideal for deferred preemptive switching.
         write_volatile(SCB_ICSR, ICSR_PENDSVSET);
     }
 }
@@ -73,6 +109,8 @@ pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
 #[unsafe(naked)]
 pub unsafe extern "C" fn SVC_Handler() {
     naked_asm!(
+        // Cooperative yields trap synchronously through SVC, but the register
+        // save/restore sequence matches PendSV so both paths share one layout.
         "mrs r0, psp",
         "ldr r1, =PENDSV_CURRENT_PSP_SLOT",
         "ldr r1, [r1]",
