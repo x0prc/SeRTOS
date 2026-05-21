@@ -1,6 +1,10 @@
 use crate::context;
+use crate::sync;
 use crate::timer;
-use crate::task::{TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskState};
+use crate::task::{
+    TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskState, TaskWaitKind,
+    TaskWakeReason,
+};
 use core::arch::asm;
 
 pub const USER_TASKS: usize = 2;
@@ -80,27 +84,47 @@ pub fn sleep_ticks(ticks: u32) {
 }
 
 pub fn sleep_until(deadline: timer::Deadline) {
+    if deadline.is_reached(timer::tick_count()) {
+        yield_now();
+        return;
+    }
+
+    let _ = block_current(TaskWaitKind::Sleep, Some(deadline));
+}
+
+pub fn current_task_id() -> Option<TaskId> {
+    unsafe { CURRENT_TASK.map(|index| TASKS[index].id()) }
+}
+
+pub fn block_current(wait_kind: TaskWaitKind, deadline: Option<timer::Deadline>) -> TaskWakeReason {
     unsafe {
         let Some(current) = CURRENT_TASK else {
-            return;
+            return TaskWakeReason::None;
         };
 
-        if deadline.is_reached(timer::tick_count()) {
-            yield_now();
-            return;
-        }
+        TASKS[current].set_wait_kind(wait_kind);
+        TASKS[current].set_wake_deadline(deadline);
+        TASKS[current].set_wake_reason(TaskWakeReason::None);
 
-        TASKS[current].set_wake_deadline(Some(deadline));
-
-        if switch_to_next(TaskState::Sleeping, false) {
+        if switch_to_next(TaskState::Blocked, false) {
             asm!("svc 0", options(nomem, nostack));
+            let resumed = CURRENT_TASK.expect("blocked task resumed without current task");
+            let wake_reason = TASKS[resumed].wake_reason();
+            TASKS[resumed].set_wake_reason(TaskWakeReason::None);
+            wake_reason
         } else {
             // This only happens if no alternate runnable task exists yet. In
-            // that case keep the caller running instead of sleeping forever.
+            // that case keep the caller running instead of blocking forever.
+            TASKS[current].set_wait_kind(TaskWaitKind::None);
             TASKS[current].set_wake_deadline(None);
             TASKS[current].set_state(TaskState::Running);
+            TaskWakeReason::None
         }
     }
+}
+
+pub fn wake_task(task_id: TaskId, wake_reason: TaskWakeReason) -> bool {
+    sync::with(|_| unsafe { wake_task_internal(task_id, wake_reason) })
 }
 
 pub fn sleep_ms(ms: u32) {
@@ -156,7 +180,12 @@ unsafe fn switch_to_next(current_state: TaskState, from_interrupt: bool) -> bool
 
     unsafe {
         TASKS[current].set_state(current_state);
+        if current_state == TaskState::Ready {
+            TASKS[current].set_wait_kind(TaskWaitKind::None);
+            TASKS[current].set_wake_deadline(None);
+        }
         TASKS[next].set_state(TaskState::Running);
+        TASKS[next].set_wait_kind(TaskWaitKind::None);
         TASKS[next].set_wake_deadline(None);
         CURRENT_TASK = Some(next);
         REMAINING_SLICE_TICKS = TIME_SLICE_TICKS;
@@ -206,7 +235,11 @@ unsafe fn wake_ready_tasks(now: u32) -> bool {
 
     for index in 0..MAX_TASKS {
         let task = unsafe { &mut TASKS[index] };
-        if task.state() != TaskState::Sleeping {
+        if task.state() != TaskState::Blocked {
+            continue;
+        }
+
+        if task.wait_kind() == TaskWaitKind::None {
             continue;
         }
 
@@ -215,8 +248,9 @@ unsafe fn wake_ready_tasks(now: u32) -> bool {
         };
 
         if wake_deadline.is_reached(now) {
-            task.set_wake_deadline(None);
-            task.set_state(TaskState::Ready);
+            unsafe {
+                wake_task_at_index(index, TaskWakeReason::Timeout);
+            }
             woke_any = true;
         }
     }
@@ -235,7 +269,7 @@ fn next_sleep_deadline() -> Option<timer::Deadline> {
     unsafe {
         for index in 0..MAX_TASKS {
             let task = &TASKS[index];
-            if task.state() != TaskState::Sleeping {
+            if task.state() != TaskState::Blocked {
                 continue;
             }
 
@@ -257,6 +291,27 @@ fn next_sleep_deadline() -> Option<timer::Deadline> {
     }
 
     nearest
+}
+
+unsafe fn wake_task_internal(task_id: TaskId, wake_reason: TaskWakeReason) -> bool {
+    if task_id.0 >= MAX_TASKS {
+        return false;
+    }
+
+    unsafe { wake_task_at_index(task_id.0, wake_reason) }
+}
+
+unsafe fn wake_task_at_index(index: usize, wake_reason: TaskWakeReason) -> bool {
+    let task = unsafe { &mut TASKS[index] };
+    if task.state() != TaskState::Blocked {
+        return false;
+    }
+
+    task.set_wait_kind(TaskWaitKind::None);
+    task.set_wake_deadline(None);
+    task.set_wake_reason(wake_reason);
+    task.set_state(TaskState::Ready);
+    true
 }
 
 extern "C" fn idle_task() -> ! {

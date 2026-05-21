@@ -8,6 +8,7 @@ pub mod startup;
 pub mod context;
 
 pub mod scheduler;
+pub mod semaphore;
 pub mod sync;
 pub mod timer;
 pub mod task;

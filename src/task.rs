@@ -21,8 +21,22 @@ pub enum TaskState {
     Dormant,
     Ready,
     Running,
-    Sleeping,
+    Blocked,
     Exited,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskWaitKind {
+    None,
+    Sleep,
+    Semaphore,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskWakeReason {
+    None,
+    Timeout,
+    Semaphore,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +51,8 @@ pub enum TaskInitError {
 pub struct TaskControlBlock<const STACK_WORDS: usize> {
     id: TaskId,
     state: TaskState,
+    wait_kind: TaskWaitKind,
+    wake_reason: TaskWakeReason,
     wake_deadline: Option<Deadline>,
     saved_psp: *mut u32,
     entry: Option<TaskEntry>,
@@ -48,6 +64,8 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         Self {
             id,
             state: TaskState::Dormant,
+            wait_kind: TaskWaitKind::None,
+            wake_reason: TaskWakeReason::None,
             wake_deadline: None,
             saved_psp: null_mut(),
             entry: None,
@@ -65,6 +83,22 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
     pub fn set_state(&mut self, state: TaskState) {
         self.state = state;
+    }
+
+    pub fn wait_kind(&self) -> TaskWaitKind {
+        self.wait_kind
+    }
+
+    pub fn set_wait_kind(&mut self, wait_kind: TaskWaitKind) {
+        self.wait_kind = wait_kind;
+    }
+
+    pub fn wake_reason(&self) -> TaskWakeReason {
+        self.wake_reason
+    }
+
+    pub fn set_wake_reason(&mut self, wake_reason: TaskWakeReason) {
+        self.wake_reason = wake_reason;
     }
 
     pub fn wake_deadline(&self) -> Option<Deadline> {
@@ -122,6 +156,8 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         }
 
         self.saved_psp = saved_psp;
+        self.wait_kind = TaskWaitKind::None;
+        self.wake_reason = TaskWakeReason::None;
         self.wake_deadline = None;
         self.state = TaskState::Ready;
 
@@ -150,6 +186,8 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
     pub fn reset_runtime_state(&mut self) {
         self.state = TaskState::Dormant;
+        self.wait_kind = TaskWaitKind::None;
+        self.wake_reason = TaskWakeReason::None;
         self.wake_deadline = None;
         self.saved_psp = null_mut();
         self.entry = None;
