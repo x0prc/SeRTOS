@@ -30,6 +30,7 @@ pub enum TaskWaitKind {
     None,
     Sleep,
     Semaphore,
+    Mutex,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +38,7 @@ pub enum TaskWakeReason {
     None,
     Timeout,
     Semaphore,
+    Mutex,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
