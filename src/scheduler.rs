@@ -2,7 +2,7 @@ use crate::context;
 use crate::sync;
 use crate::timer;
 use crate::task::{
-    TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskState, TaskWaitKind,
+    TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskPriority, TaskState, TaskWaitKind,
     TaskWakeReason,
 };
 use core::arch::asm;
@@ -11,6 +11,8 @@ pub const USER_TASKS: usize = 2;
 pub const MAX_TASKS: usize = USER_TASKS + 1;
 pub const TASK_STACK_WORDS: usize = 256;
 pub const TIME_SLICE_TICKS: u32 = 10;
+pub const DEFAULT_TASK_PRIORITY: TaskPriority = 1;
+pub const IDLE_TASK_PRIORITY: TaskPriority = 0;
 const IDLE_TASK_INDEX: usize = MAX_TASKS - 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -28,6 +30,10 @@ static mut CURRENT_TASK: Option<usize> = None;
 static mut REMAINING_SLICE_TICKS: u32 = TIME_SLICE_TICKS;
 
 pub fn spawn(entry: TaskEntry) -> Result<TaskId, SpawnError> {
+    spawn_with_priority(entry, DEFAULT_TASK_PRIORITY)
+}
+
+pub fn spawn_with_priority(entry: TaskEntry, priority: TaskPriority) -> Result<TaskId, SpawnError> {
     unsafe {
         // Cooperative bring-up uses a fixed task table so spawn is just a scan
         // for the next dormant slot with no allocator involvement.
@@ -38,6 +44,8 @@ pub fn spawn(entry: TaskEntry) -> Result<TaskId, SpawnError> {
             }
 
             task.prepare(entry).map_err(SpawnError::TaskInit)?;
+            task.set_base_priority(priority);
+            task.set_effective_priority(priority);
             return Ok(task.id());
         }
     }
@@ -94,6 +102,54 @@ pub fn sleep_until(deadline: timer::Deadline) {
 
 pub fn current_task_id() -> Option<TaskId> {
     unsafe { CURRENT_TASK.map(|index| TASKS[index].id()) }
+}
+
+pub fn task_effective_priority(task_id: TaskId) -> Option<TaskPriority> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].effective_priority()) }
+}
+
+pub fn task_base_priority(task_id: TaskId) -> Option<TaskPriority> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].base_priority()) }
+}
+
+pub fn set_task_effective_priority(task_id: TaskId, priority: TaskPriority) -> bool {
+    sync::with(|_| unsafe {
+        if task_id.0 >= MAX_TASKS {
+            return false;
+        }
+
+        TASKS[task_id.0].set_effective_priority(priority);
+        true
+    })
+}
+
+pub fn yield_if_higher_priority_ready() {
+    unsafe {
+        let Some(current) = CURRENT_TASK else {
+            return;
+        };
+
+        let current_priority = TASKS[current].effective_priority();
+        let Some(next) = next_ready_after(Some(current)) else {
+            return;
+        };
+
+        if TASKS[next].effective_priority() <= current_priority {
+            return;
+        }
+
+        if switch_to_next(TaskState::Ready, false) {
+            asm!("svc 0", options(nomem, nostack));
+        }
+    }
 }
 
 pub fn block_current(wait_kind: TaskWaitKind, deadline: Option<timer::Deadline>) -> TaskWakeReason {
@@ -208,25 +264,36 @@ unsafe fn switch_to_next(current_state: TaskState, from_interrupt: bool) -> bool
 
 unsafe fn next_ready_after(current: Option<usize>) -> Option<usize> {
     let start = current.map_or(0, |index| (index + 1) % MAX_TASKS);
+    let mut selected = None;
+    let mut selected_priority = 0;
 
     for step in 0..MAX_TASKS {
         let index = (start + step) % MAX_TASKS;
-        let state = unsafe { TASKS[index].state() };
+        let task = unsafe { &TASKS[index] };
         // The current task may still be marked Running while we search, so the
         // round-robin scan accepts either runnable state.
-        if matches!(state, TaskState::Ready | TaskState::Running) {
-            return Some(index);
+        if !matches!(task.state(), TaskState::Ready | TaskState::Running) {
+            continue;
+        }
+
+        let priority = task.effective_priority();
+        if selected.is_none() || priority > selected_priority {
+            selected = Some(index);
+            selected_priority = priority;
         }
     }
 
-    None
+    selected
 }
 
 unsafe fn prepare_idle_task() {
     if unsafe { TASKS[IDLE_TASK_INDEX].state() } == TaskState::Dormant {
         // The reserved final slot is never exposed through spawn(); it exists so
         // the scheduler always has a safe task to run while all user tasks sleep.
-        let _ = unsafe { TASKS[IDLE_TASK_INDEX].prepare(idle_task) };
+        let idle = unsafe { &mut TASKS[IDLE_TASK_INDEX] };
+        let _ = idle.prepare(idle_task);
+        idle.set_base_priority(IDLE_TASK_PRIORITY);
+        idle.set_effective_priority(IDLE_TASK_PRIORITY);
     }
 }
 

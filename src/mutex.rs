@@ -1,6 +1,7 @@
+use crate::priority;
 use crate::scheduler;
 use crate::sync;
-use crate::task::{TaskId, TaskWaitKind, TaskWakeReason};
+use crate::task::{TaskId, TaskPriority, TaskWaitKind, TaskWakeReason};
 use crate::timer::Deadline;
 
 pub struct Mutex {
@@ -26,6 +27,8 @@ impl Mutex {
         sync::with(|_| {
             if self.owner.is_none() {
                 self.owner = Some(current);
+                priority::update_mutex_owner(self as *mut Self, self.owner, self.highest_waiter_priority());
+                priority::recompute_task_priority(current);
                 true
             } else {
                 false
@@ -40,6 +43,7 @@ impl Mutex {
                 assert_ne!(self.owner, Some(current), "mutex lock is not recursive");
                 self.enqueue_waiter(current)
                     .expect("mutex waiter list exhausted");
+                self.refresh_owner_inheritance();
             });
 
             match scheduler::block_current(TaskWaitKind::Mutex, None) {
@@ -72,6 +76,7 @@ impl Mutex {
                 assert_ne!(self.owner, Some(current), "mutex lock is not recursive");
                 self.enqueue_waiter(current)
                     .expect("mutex waiter list exhausted");
+                self.refresh_owner_inheritance();
             });
 
             match scheduler::block_current(TaskWaitKind::Mutex, Some(deadline)) {
@@ -81,6 +86,7 @@ impl Mutex {
                     // slot before reporting lock acquisition failure.
                     sync::with(|_| {
                         self.remove_waiter(current);
+                        self.refresh_owner_inheritance();
                     });
                     return false;
                 }
@@ -89,6 +95,7 @@ impl Mutex {
                     // blocked and must not stay queued as a waiter.
                     sync::with(|_| {
                         self.remove_waiter(current);
+                        self.refresh_owner_inheritance();
                     });
                 }
                 TaskWakeReason::Semaphore => unreachable!("mutex waiter woke with semaphore reason"),
@@ -98,21 +105,31 @@ impl Mutex {
 
     pub fn unlock(&mut self) -> bool {
         let current = scheduler::current_task_id().expect("unlock called without running task");
-
-        sync::with(|_| {
+        let handed_off = sync::with(|_| {
             assert_eq!(self.owner, Some(current), "mutex unlock by non-owner");
 
             if let Some(task_id) = self.dequeue_waiter() {
                 // Ownership transfers directly to the selected waiter before it
                 // runs so no third task can steal the mutex in between.
                 self.owner = Some(task_id);
+                priority::update_mutex_owner(self as *mut Self, self.owner, self.highest_waiter_priority());
+                priority::recompute_task_priority(current);
+                priority::recompute_task_priority(task_id);
                 scheduler::wake_task(task_id, TaskWakeReason::Mutex);
                 true
             } else {
                 self.owner = None;
+                priority::update_mutex_owner(self as *mut Self, None, scheduler::IDLE_TASK_PRIORITY);
+                priority::recompute_task_priority(current);
                 true
             }
-        })
+        });
+
+        if handed_off {
+            scheduler::yield_if_higher_priority_ready();
+        }
+
+        true
     }
 
     pub fn owner(&self) -> Option<TaskId> {
@@ -165,5 +182,26 @@ impl Mutex {
         }
 
         false
+    }
+
+    fn highest_waiter_priority(&self) -> TaskPriority {
+        let mut priority = scheduler::IDLE_TASK_PRIORITY;
+
+        for waiter in self.waiters.iter().flatten() {
+            if let Some(waiter_priority) = scheduler::task_effective_priority(*waiter) {
+                if waiter_priority > priority {
+                    priority = waiter_priority;
+                }
+            }
+        }
+
+        priority
+    }
+
+    fn refresh_owner_inheritance(&mut self) {
+        if let Some(owner) = self.owner {
+            priority::update_mutex_owner(self as *mut Self, Some(owner), self.highest_waiter_priority());
+            priority::recompute_task_priority(owner);
+        }
     }
 }

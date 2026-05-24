@@ -8,6 +8,7 @@ pub mod startup;
 pub mod context;
 
 pub mod mutex;
+pub mod priority;
 pub mod scheduler;
 pub mod semaphore;
 pub mod sync;

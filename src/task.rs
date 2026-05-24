@@ -3,6 +3,7 @@ use core::ptr::null_mut;
 
 // Tasks run as plain entry functions until the scheduler grows argument passing.
 pub type TaskEntry = extern "C" fn() -> !;
+pub type TaskPriority = u8;
 
 // PendSV will later restore these callee-saved registers in software.
 const SOFTWARE_FRAME_WORDS: usize = 8;
@@ -53,6 +54,8 @@ pub enum TaskInitError {
 pub struct TaskControlBlock<const STACK_WORDS: usize> {
     id: TaskId,
     state: TaskState,
+    base_priority: TaskPriority,
+    effective_priority: TaskPriority,
     wait_kind: TaskWaitKind,
     wake_reason: TaskWakeReason,
     wake_deadline: Option<Deadline>,
@@ -66,6 +69,8 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         Self {
             id,
             state: TaskState::Dormant,
+            base_priority: 0,
+            effective_priority: 0,
             wait_kind: TaskWaitKind::None,
             wake_reason: TaskWakeReason::None,
             wake_deadline: None,
@@ -89,6 +94,22 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
     pub fn wait_kind(&self) -> TaskWaitKind {
         self.wait_kind
+    }
+
+    pub fn base_priority(&self) -> TaskPriority {
+        self.base_priority
+    }
+
+    pub fn set_base_priority(&mut self, priority: TaskPriority) {
+        self.base_priority = priority;
+    }
+
+    pub fn effective_priority(&self) -> TaskPriority {
+        self.effective_priority
+    }
+
+    pub fn set_effective_priority(&mut self, priority: TaskPriority) {
+        self.effective_priority = priority;
     }
 
     pub fn set_wait_kind(&mut self, wait_kind: TaskWaitKind) {
@@ -158,6 +179,8 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         }
 
         self.saved_psp = saved_psp;
+        self.base_priority = 1;
+        self.effective_priority = 1;
         self.wait_kind = TaskWaitKind::None;
         self.wake_reason = TaskWakeReason::None;
         self.wake_deadline = None;
@@ -188,6 +211,8 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
     pub fn reset_runtime_state(&mut self) {
         self.state = TaskState::Dormant;
+        self.base_priority = 0;
+        self.effective_priority = 0;
         self.wait_kind = TaskWaitKind::None;
         self.wake_reason = TaskWakeReason::None;
         self.wake_deadline = None;
