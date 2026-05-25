@@ -57,6 +57,8 @@ impl Mutex {
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed lock cannot time out"),
                 TaskWakeReason::Semaphore => unreachable!("mutex waiter woke with semaphore reason"),
+                TaskWakeReason::Queue => unreachable!("mutex waiter woke with queue reason"),
+                TaskWakeReason::EventFlags => unreachable!("mutex waiter woke with event flag reason"),
             }
         }
     }
@@ -99,6 +101,8 @@ impl Mutex {
                     });
                 }
                 TaskWakeReason::Semaphore => unreachable!("mutex waiter woke with semaphore reason"),
+                TaskWakeReason::Queue => unreachable!("mutex waiter woke with queue reason"),
+                TaskWakeReason::EventFlags => unreachable!("mutex waiter woke with event flag reason"),
             }
         }
     }

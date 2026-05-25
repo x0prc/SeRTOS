@@ -7,8 +7,11 @@ pub mod startup;
 #[path = "../arch/cortex-m/context.rs"]
 pub mod context;
 
+pub mod event_flags;
 pub mod mutex;
 pub mod priority;
+pub mod queue;
+pub mod ring_buffer;
 pub mod scheduler;
 pub mod semaphore;
 pub mod sync;

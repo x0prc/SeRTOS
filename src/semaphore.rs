@@ -59,6 +59,8 @@ impl BinarySemaphore {
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed take cannot time out"),
                 TaskWakeReason::Mutex => unreachable!("semaphore waiter woke with mutex reason"),
+                TaskWakeReason::Queue => unreachable!("semaphore waiter woke with queue reason"),
+                TaskWakeReason::EventFlags => unreachable!("semaphore waiter woke with event flag reason"),
             }
         }
     }
@@ -97,6 +99,8 @@ impl BinarySemaphore {
                     });
                 }
                 TaskWakeReason::Mutex => unreachable!("semaphore waiter woke with mutex reason"),
+                TaskWakeReason::Queue => unreachable!("semaphore waiter woke with queue reason"),
+                TaskWakeReason::EventFlags => unreachable!("semaphore waiter woke with event flag reason"),
             }
         }
     }
@@ -178,6 +182,8 @@ impl CountingSemaphore {
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed take cannot time out"),
                 TaskWakeReason::Mutex => unreachable!("semaphore waiter woke with mutex reason"),
+                TaskWakeReason::Queue => unreachable!("semaphore waiter woke with queue reason"),
+                TaskWakeReason::EventFlags => unreachable!("semaphore waiter woke with event flag reason"),
             }
         }
     }
@@ -216,6 +222,8 @@ impl CountingSemaphore {
                     });
                 }
                 TaskWakeReason::Mutex => unreachable!("semaphore waiter woke with mutex reason"),
+                TaskWakeReason::Queue => unreachable!("semaphore waiter woke with queue reason"),
+                TaskWakeReason::EventFlags => unreachable!("semaphore waiter woke with event flag reason"),
             }
         }
     }
