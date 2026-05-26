@@ -31,7 +31,7 @@ impl EventFlags {
             // operation wakes everyone and lets each task re-check its own rule.
             self.wake_all_waiters();
         });
-    }School
+    }
 
     pub fn clear(&mut self, flags: u32) {
         sync::with(|_| {

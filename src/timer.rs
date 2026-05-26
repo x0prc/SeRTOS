@@ -43,9 +43,19 @@ pub fn init() {
         // Start SysTick with interrupt generation enabled.
         write_volatile(SYST_CSR, CSR_CLKSOURCE | CSR_TICKINT | CSR_ENABLE);
         // Leave global interrupt masking so the core can actually take SysTick.
+        enable_interrupts();
+    }
+}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
+unsafe fn enable_interrupts() {
+    unsafe {
         core::arch::asm!("cpsie i", options(nomem, nostack, preserves_flags));
     }
 }
+
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+unsafe fn enable_interrupts() {}
 
 pub const fn cpu_hz() -> u32 {
     CPU_HZ

@@ -1,21 +1,32 @@
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 use core::arch::naked_asm;
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 use core::ptr::{null_mut, read_volatile, write_volatile};
 
 // System Control Block registers used to configure and pend PendSV.
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 const SCB_ICSR: *mut u32 = 0xE000_ED04 as *mut u32;
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 const SCB_SHPR3: *mut u32 = 0xE000_ED20 as *mut u32;
 
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 const ICSR_PENDSVSET: u32 = 1 << 28;
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 const SHPR3_PENDSV_SHIFT: u32 = 16;
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 const SHPR3_PENDSV_MASK: u32 = 0xFF << SHPR3_PENDSV_SHIFT;
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 const SHPR3_PENDSV_LOWEST: u32 = 0xFF << SHPR3_PENDSV_SHIFT;
 
 // The scheduler will fill these handoff pointers before requesting PendSV.
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 #[unsafe(no_mangle)]
 static mut PENDSV_CURRENT_PSP_SLOT: *mut *mut u32 = null_mut();
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 #[unsafe(no_mangle)]
 static mut PENDSV_NEXT_PSP: *mut u32 = null_mut();
 
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 pub fn init() {
     unsafe {
         // PendSV should always be the lowest-priority configurable exception so
@@ -26,6 +37,10 @@ pub fn init() {
     }
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub fn init() {}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 pub fn disable_interrupts() -> u32 {
     let primask: u32;
     unsafe {
@@ -42,6 +57,12 @@ pub fn disable_interrupts() -> u32 {
     primask
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub fn disable_interrupts() -> u32 {
+    0
+}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 pub fn restore_interrupts(primask: u32) {
     unsafe {
         core::arch::asm!(
@@ -54,6 +75,10 @@ pub fn restore_interrupts(primask: u32) {
     }
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub fn restore_interrupts(_primask: u32) {}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 pub fn prepare_first_switch(next_psp: *mut u32) {
     unsafe {
         // First task launch has no outgoing context, so only the incoming PSP is
@@ -63,6 +88,10 @@ pub fn prepare_first_switch(next_psp: *mut u32) {
     }
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub fn prepare_first_switch(_next_psp: *mut u32) {}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 pub fn prepare_switch(current_psp_slot: *mut *mut u32, next_psp: *mut u32) {
     unsafe {
         // SVC and PendSV both consume this same handoff state: where to save the
@@ -72,6 +101,10 @@ pub fn prepare_switch(current_psp_slot: *mut *mut u32, next_psp: *mut u32) {
     }
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub fn prepare_switch(_current_psp_slot: *mut *mut u32, _next_psp: *mut u32) {}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 pub fn trigger_pendsv() {
     unsafe {
         // Setting PENDSVSET asks the core to take PendSV once higher-priority
@@ -80,6 +113,10 @@ pub fn trigger_pendsv() {
     }
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub fn trigger_pendsv() {}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 #[unsafe(naked)]
 pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
     naked_asm!(
@@ -105,6 +142,15 @@ pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
     );
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
+    // Host builds only verify Rust code paths; context switching is ARM-only.
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 #[unsafe(no_mangle)]
 #[unsafe(naked)]
 pub unsafe extern "C" fn SVC_Handler() {
@@ -130,6 +176,11 @@ pub unsafe extern "C" fn SVC_Handler() {
     );
 }
 
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+#[unsafe(no_mangle)]
+pub extern "C" fn SVC_Handler() {}
+
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 #[unsafe(no_mangle)]
 #[unsafe(naked)]
 pub unsafe extern "C" fn PendSV_Handler() {
@@ -156,3 +207,7 @@ pub unsafe extern "C" fn PendSV_Handler() {
         "bx lr",
     );
 }
+
+#[cfg(not(all(target_arch = "arm", target_os = "none")))]
+#[unsafe(no_mangle)]
+pub extern "C" fn PendSV_Handler() {}
