@@ -4,6 +4,7 @@ use core::ptr::null_mut;
 // Tasks run as plain entry functions until the scheduler grows argument passing.
 pub type TaskEntry = extern "C" fn() -> !;
 pub type TaskPriority = u8;
+const STACK_WATERMARK_WORD: u32 = 0xA5A5_A5A5;
 
 // PendSV will later restore these callee-saved registers in software.
 const SOFTWARE_FRAME_WORDS: usize = 8;
@@ -168,6 +169,7 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
 
         self.reset_runtime_state();
         self.entry = Some(entry);
+        self.stack.fill(STACK_WATERMARK_WORD);
 
         let frame = &mut self.stack[STACK_WORDS - INITIAL_FRAME_WORDS..];
         frame.fill(0);
@@ -202,6 +204,25 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         &mut self.stack
     }
 
+    pub fn stack_watermark_word(&self) -> u32 {
+        STACK_WATERMARK_WORD
+    }
+
+    pub fn stack_unused_words(&self) -> usize {
+        self.stack
+            .iter()
+            .take_while(|word| **word == STACK_WATERMARK_WORD)
+            .count()
+    }
+
+    pub fn stack_used_words(&self) -> usize {
+        STACK_WORDS.saturating_sub(self.stack_unused_words())
+    }
+
+    pub fn stack_high_water_mark_words(&self) -> usize {
+        self.stack_unused_words()
+    }
+
     pub fn stack_low_addr(&self) -> *const u32 {
         self.stack.as_ptr()
     }
@@ -223,7 +244,7 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         self.wake_deadline = None;
         self.saved_psp = null_mut();
         self.entry = None;
-        self.stack.fill(0);
+        self.stack.fill(STACK_WATERMARK_WORD);
     }
 }
 

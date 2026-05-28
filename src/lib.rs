@@ -8,6 +8,7 @@ pub mod startup;
 pub mod context;
 
 pub mod event_flags;
+pub mod memory;
 pub mod mutex;
 pub mod priority;
 pub mod queue;
