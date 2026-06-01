@@ -208,6 +208,10 @@ impl<const STACK_WORDS: usize> TaskControlBlock<STACK_WORDS> {
         STACK_WATERMARK_WORD
     }
 
+    pub fn stack_overflowed(&self) -> bool {
+        self.stack[0] != STACK_WATERMARK_WORD
+    }
+
     pub fn stack_unused_words(&self) -> usize {
         self.stack
             .iter()

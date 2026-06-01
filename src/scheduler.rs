@@ -1,10 +1,12 @@
 use crate::context;
+use crate::reliability::{self, TraceKind};
 use crate::sync;
 use crate::timer;
 use crate::task::{
     TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskPriority, TaskState, TaskWaitKind,
     TaskWakeReason,
 };
+#[cfg(target_arch = "arm")]
 use core::arch::asm;
 
 pub const USER_TASKS: usize = 2;
@@ -46,6 +48,7 @@ pub fn spawn_with_priority(entry: TaskEntry, priority: TaskPriority) -> Result<T
             task.prepare(entry).map_err(SpawnError::TaskInit)?;
             task.set_base_priority(priority);
             task.set_effective_priority(priority);
+            reliability::trace(TraceKind::Spawn, Some(task.id()), priority as u32, 0);
             return Ok(task.id());
         }
     }
@@ -75,7 +78,7 @@ pub fn yield_now() {
         if switch_to_next(TaskState::Ready, false) {
             // SVC makes cooperative yield synchronous so the current task cannot
             // run any more thread-mode instructions after it gives up the CPU.
-            asm!("svc 0", options(nomem, nostack));
+            svc_yield();
         }
     }
 }
@@ -102,6 +105,85 @@ pub fn sleep_until(deadline: timer::Deadline) {
 
 pub fn current_task_id() -> Option<TaskId> {
     unsafe { CURRENT_TASK.map(|index| TASKS[index].id()) }
+}
+
+pub fn task_state(task_id: TaskId) -> Option<TaskState> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].state()) }
+}
+
+pub fn task_wait_kind(task_id: TaskId) -> Option<TaskWaitKind> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].wait_kind()) }
+}
+
+pub fn task_stack_overflowed(task_id: TaskId) -> Option<bool> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].stack_overflowed()) }
+}
+
+pub fn task_stack_used_words(task_id: TaskId) -> Option<usize> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].stack_used_words()) }
+}
+
+pub fn task_stack_capacity_words(task_id: TaskId) -> Option<usize> {
+    if task_id.0 >= MAX_TASKS {
+        return None;
+    }
+
+    unsafe { Some(TASKS[task_id.0].stack_len_words()) }
+}
+
+pub fn only_idle_runnable() -> bool {
+    unsafe {
+        for index in 0..MAX_TASKS {
+            if index == IDLE_TASK_INDEX {
+                continue;
+            }
+
+            if matches!(TASKS[index].state(), TaskState::Ready | TaskState::Running) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+pub fn blocked_tasks_have_no_deadlines() -> bool {
+    let mut saw_blocked = false;
+
+    unsafe {
+        for index in 0..MAX_TASKS {
+            if index == IDLE_TASK_INDEX {
+                continue;
+            }
+
+            if TASKS[index].state() != TaskState::Blocked {
+                continue;
+            }
+
+            saw_blocked = true;
+            if TASKS[index].wake_deadline().is_some() {
+                return false;
+            }
+        }
+    }
+
+    saw_blocked
 }
 
 pub fn task_effective_priority(task_id: TaskId) -> Option<TaskPriority> {
@@ -147,7 +229,7 @@ pub fn yield_if_higher_priority_ready() {
         }
 
         if switch_to_next(TaskState::Ready, false) {
-            asm!("svc 0", options(nomem, nostack));
+            svc_yield();
         }
     }
 }
@@ -161,9 +243,10 @@ pub fn block_current(wait_kind: TaskWaitKind, deadline: Option<timer::Deadline>)
         TASKS[current].set_wait_kind(wait_kind);
         TASKS[current].set_wake_deadline(deadline);
         TASKS[current].set_wake_reason(TaskWakeReason::None);
+        reliability::trace(TraceKind::Block, Some(TASKS[current].id()), wait_kind as u32, 0);
 
         if switch_to_next(TaskState::Blocked, false) {
-            asm!("svc 0", options(nomem, nostack));
+            svc_yield();
             let resumed = CURRENT_TASK.expect("blocked task resumed without current task");
             let wake_reason = TASKS[resumed].wake_reason();
             TASKS[resumed].set_wake_reason(TaskWakeReason::None);
@@ -189,6 +272,7 @@ pub fn sleep_ms(ms: u32) {
 
 pub fn on_tick() {
     unsafe {
+        reliability::check_all_task_stacks();
         let now = timer::tick_count();
         let woke_tasks = wake_ready_tasks(now);
 
@@ -245,6 +329,12 @@ unsafe fn switch_to_next(current_state: TaskState, from_interrupt: bool) -> bool
         TASKS[next].set_wake_deadline(None);
         CURRENT_TASK = Some(next);
         REMAINING_SLICE_TICKS = TIME_SLICE_TICKS;
+        reliability::trace(
+            TraceKind::Switch,
+            Some(TASKS[next].id()),
+            TASKS[current].id().0 as u32,
+            TASKS[next].id().0 as u32,
+        );
     }
 
     // Cooperative yields save the outgoing PSP from thread mode via SVC. Tick
@@ -378,6 +468,7 @@ unsafe fn wake_task_at_index(index: usize, wake_reason: TaskWakeReason) -> bool 
     task.set_wake_deadline(None);
     task.set_wake_reason(wake_reason);
     task.set_state(TaskState::Ready);
+    reliability::trace(TraceKind::Wake, Some(task.id()), wake_reason as u32, 0);
     true
 }
 
@@ -387,12 +478,38 @@ extern "C" fn idle_task() -> ! {
             // When only idle is runnable, stretch the next SysTick interrupt to
             // the nearest wake deadline instead of taking every 1 ms tick.
             timer::begin_tickless_idle(deadline);
+        } else {
+            reliability::diagnose_deadlock();
         }
 
         unsafe {
             // Idle should sleep until the next interrupt so blocked-task waits do
             // not degenerate into a hot spin while the system is otherwise idle.
-            asm!("wfi", options(nomem, nostack, preserves_flags));
+            idle_wait();
         }
     }
+}
+
+#[cfg(target_arch = "arm")]
+unsafe fn svc_yield() {
+    unsafe {
+        asm!("svc 0", options(nomem, nostack));
+    }
+}
+
+#[cfg(not(target_arch = "arm"))]
+unsafe fn svc_yield() {
+    panic!("host test build cannot execute Cortex-M SVC")
+}
+
+#[cfg(target_arch = "arm")]
+unsafe fn idle_wait() {
+    unsafe {
+        asm!("wfi", options(nomem, nostack, preserves_flags));
+    }
+}
+
+#[cfg(not(target_arch = "arm"))]
+unsafe fn idle_wait() {
+    core::hint::spin_loop();
 }

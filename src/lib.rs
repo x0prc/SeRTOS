@@ -1,17 +1,43 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 
+#[cfg(target_arch = "arm")]
 #[path = "../arch/cortex-m/startup.rs"]
 pub mod startup;
+#[cfg(target_arch = "arm")]
 #[path = "../arch/cortex-m/context.rs"]
 pub mod context;
+
+#[cfg(not(target_arch = "arm"))]
+pub mod startup {}
+
+#[cfg(not(target_arch = "arm"))]
+pub mod context {
+    pub fn init() {}
+
+    pub fn disable_interrupts() -> u32 {
+        0
+    }
+
+    pub fn restore_interrupts(_primask: u32) {}
+
+    pub fn prepare_switch(_current_psp_slot: *mut *mut u32, _next_psp: *mut u32) {}
+
+    pub fn trigger_pendsv() {}
+
+    pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
+        panic!("host test build cannot start Cortex-M tasks")
+    }
+}
 
 pub mod event_flags;
 pub mod memory;
 pub mod mutex;
 pub mod priority;
 pub mod queue;
+pub mod reliability;
 pub mod ring_buffer;
 pub mod scheduler;
 pub mod semaphore;
@@ -72,6 +98,7 @@ extern "C" fn task_b() -> ! {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo<'_>) -> ! {
     // Panic reporting is only attempted after UART init to avoid touching MMIO

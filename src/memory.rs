@@ -80,3 +80,21 @@ impl<const BLOCK_SIZE: usize, const BLOCK_COUNT: usize> FixedBlockAllocator<BLOC
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::FixedBlockAllocator;
+
+    #[test]
+    fn allocator_reuses_freed_block() {
+        let mut allocator = FixedBlockAllocator::<16, 2>::new();
+        let first = allocator.alloc().expect("first block");
+        let second = allocator.alloc().expect("second block");
+        assert!(allocator.alloc().is_none());
+        assert!(allocator.free(first));
+        let third = allocator.alloc().expect("reused block");
+        assert_eq!(allocator.block_index(first), allocator.block_index(third));
+        assert!(allocator.free(second));
+        assert!(allocator.free(third));
+    }
+}

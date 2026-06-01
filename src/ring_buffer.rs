@@ -69,3 +69,22 @@ impl<T, const N: usize> Drop for RingBuffer<T, N> {
         while self.pop().is_some() {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RingBuffer;
+
+    #[test]
+    fn push_pop_wraps_in_fifo_order() {
+        let mut buffer = RingBuffer::<u32, 3>::new();
+        assert!(buffer.push(1).is_ok());
+        assert!(buffer.push(2).is_ok());
+        assert_eq!(buffer.pop(), Some(1));
+        assert!(buffer.push(3).is_ok());
+        assert!(buffer.push(4).is_ok());
+        assert_eq!(buffer.pop(), Some(2));
+        assert_eq!(buffer.pop(), Some(3));
+        assert_eq!(buffer.pop(), Some(4));
+        assert_eq!(buffer.pop(), None);
+    }
+}

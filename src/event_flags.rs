@@ -197,3 +197,17 @@ impl EventFlags {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{EventFlags, WaitMode};
+
+    #[test]
+    fn try_wait_any_and_clear_behaves_as_expected() {
+        let mut flags = EventFlags::new();
+        flags.set(0b0110);
+        assert_eq!(flags.try_wait(0b0010, WaitMode::Any, true), Some(0b0010));
+        assert_eq!(flags.bits(), 0b0100);
+        assert_eq!(flags.try_wait(0b0011, WaitMode::All, false), None);
+    }
+}
