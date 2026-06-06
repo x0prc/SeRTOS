@@ -8,7 +8,9 @@ pub struct FixedBlockAllocator<const BLOCK_SIZE: usize, const BLOCK_COUNT: usize
     used: [bool; BLOCK_COUNT],
 }
 
-impl<const BLOCK_SIZE: usize, const BLOCK_COUNT: usize> FixedBlockAllocator<BLOCK_SIZE, BLOCK_COUNT> {
+impl<const BLOCK_SIZE: usize, const BLOCK_COUNT: usize>
+    FixedBlockAllocator<BLOCK_SIZE, BLOCK_COUNT>
+{
     pub const fn new() -> Self {
         Self {
             blocks: [[0; BLOCK_SIZE]; BLOCK_COUNT],

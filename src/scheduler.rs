@@ -1,11 +1,11 @@
 use crate::context;
 use crate::reliability::{self, TraceKind};
 use crate::sync;
-use crate::timer;
 use crate::task::{
     TaskControlBlock, TaskEntry, TaskId, TaskInitError, TaskPriority, TaskState, TaskWaitKind,
     TaskWakeReason,
 };
+use crate::timer;
 #[cfg(target_arch = "arm")]
 use core::arch::asm;
 
@@ -243,7 +243,12 @@ pub fn block_current(wait_kind: TaskWaitKind, deadline: Option<timer::Deadline>)
         TASKS[current].set_wait_kind(wait_kind);
         TASKS[current].set_wake_deadline(deadline);
         TASKS[current].set_wake_reason(TaskWakeReason::None);
-        reliability::trace(TraceKind::Block, Some(TASKS[current].id()), wait_kind as u32, 0);
+        reliability::trace(
+            TraceKind::Block,
+            Some(TASKS[current].id()),
+            wait_kind as u32,
+            0,
+        );
 
         if switch_to_next(TaskState::Blocked, false) {
             svc_yield();
@@ -339,9 +344,8 @@ unsafe fn switch_to_next(current_state: TaskState, from_interrupt: bool) -> bool
 
     // Cooperative yields save the outgoing PSP from thread mode via SVC. Tick
     // preemption already runs in handler mode, so PendSV saves the thread PSP.
-    let (current_psp_slot, next_psp) = unsafe {
-        (TASKS[current].saved_psp_slot(), TASKS[next].saved_psp())
-    };
+    let (current_psp_slot, next_psp) =
+        unsafe { (TASKS[current].saved_psp_slot(), TASKS[next].saved_psp()) };
 
     if from_interrupt {
         context::prepare_switch(current_psp_slot, next_psp);

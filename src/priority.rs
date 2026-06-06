@@ -27,7 +27,16 @@ impl MutexPriorityEntry {
 static mut MUTEX_PRIORITY_TABLE: [MutexPriorityEntry; MAX_TRACKED_MUTEXES] =
     [MutexPriorityEntry::empty(); MAX_TRACKED_MUTEXES];
 
-pub fn update_mutex_owner(mutex: *mut Mutex, owner: Option<TaskId>, inherited_priority: TaskPriority) {
+/// # Safety
+///
+/// `mutex` must point to the `Mutex` whose priority table entry should be
+/// created, updated, or cleared. The pointer is used only as an identity key
+/// and is never dereferenced.
+pub unsafe fn update_mutex_owner(
+    mutex: *mut Mutex,
+    owner: Option<TaskId>,
+    inherited_priority: TaskPriority,
+) {
     unsafe {
         let Some(index) = find_or_allocate_entry(mutex) else {
             return;

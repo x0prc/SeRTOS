@@ -4,11 +4,11 @@
 use core::panic::PanicInfo;
 
 #[cfg(target_arch = "arm")]
-#[path = "../arch/cortex-m/startup.rs"]
-pub mod startup;
-#[cfg(target_arch = "arm")]
 #[path = "../arch/cortex-m/context.rs"]
 pub mod context;
+#[cfg(target_arch = "arm")]
+#[path = "../arch/cortex-m/startup.rs"]
+pub mod startup;
 
 #[cfg(not(target_arch = "arm"))]
 pub mod startup {}
@@ -42,8 +42,8 @@ pub mod ring_buffer;
 pub mod scheduler;
 pub mod semaphore;
 pub mod sync;
-pub mod timer;
 pub mod task;
+pub mod timer;
 pub mod uart;
 
 // Reset_Handler transfers control here after minimal runtime initialization.
@@ -80,7 +80,11 @@ extern "C" fn task_a() -> ! {
     let mut iteration = 0u32;
 
     loop {
-        uart::log_line(format_args!("task A iteration {} tick {}", iteration, timer::tick_count()));
+        uart::log_line(format_args!(
+            "task A iteration {} tick {}",
+            iteration,
+            timer::tick_count()
+        ));
 
         iteration = iteration.wrapping_add(1);
         timer::delay_ms(100);
@@ -91,7 +95,11 @@ extern "C" fn task_b() -> ! {
     let mut iteration = 0u32;
 
     loop {
-        uart::log_line(format_args!("task B iteration {} tick {}", iteration, timer::tick_count()));
+        uart::log_line(format_args!(
+            "task B iteration {} tick {}",
+            iteration,
+            timer::tick_count()
+        ));
 
         iteration = iteration.wrapping_add(1);
         timer::sleep_ms(250);

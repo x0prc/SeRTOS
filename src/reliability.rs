@@ -54,7 +54,12 @@ pub fn kernel_assert(condition: bool, message: &'static str) {
         return;
     }
 
-    trace(TraceKind::AssertFailed, scheduler::current_task_id(), message.len() as u32, 0);
+    trace(
+        TraceKind::AssertFailed,
+        scheduler::current_task_id(),
+        message.len() as u32,
+        0,
+    );
     panic!("kernel assertion failed: {}", message);
 }
 
@@ -128,7 +133,9 @@ pub fn diagnose_deadlock() {
     trace(TraceKind::DeadlockSuspected, None, 0, 0);
 
     if uart::is_initialized() {
-        uart::log_line(format_args!("deadlock suspected: all user tasks blocked without timeout"));
+        uart::log_line(format_args!(
+            "deadlock suspected: all user tasks blocked without timeout"
+        ));
         for task_index in 0..scheduler::MAX_TASKS {
             let task_id = TaskId(task_index);
             let Some(state) = scheduler::task_state(task_id) else {

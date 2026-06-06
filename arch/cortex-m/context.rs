@@ -135,7 +135,7 @@ pub unsafe extern "C" fn start_first_task(_next_psp: *mut u32) -> ! {
         "msr psp, r7",
         "movs r7, #2",
         "msr control, r7",
-        "isb",          // ensures all previous instructions are completed before executing new ones.
+        "isb", // ensures all previous instructions are completed before executing new ones.
         "mov r12, r4",
         "mov lr, r5",
         "bx r6",

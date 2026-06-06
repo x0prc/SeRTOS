@@ -47,7 +47,10 @@ pub extern "C" fn SystemInit() {
 }
 
 // Core exception vector table for Cortex-M3.
-#[cfg_attr(all(target_arch = "arm", target_os = "none"), unsafe(link_section = ".isr_vector"))]
+#[cfg_attr(
+    all(target_arch = "arm", target_os = "none"),
+    unsafe(link_section = ".isr_vector")
+)]
 #[unsafe(no_mangle)]
 pub static VECTOR_TABLE: [Vector; 16] = [
     // Initial MSP value loaded by hardware on reset.

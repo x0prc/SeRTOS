@@ -27,7 +27,13 @@ impl Mutex {
         sync::with(|_| {
             if self.owner.is_none() {
                 self.owner = Some(current);
-                priority::update_mutex_owner(self as *mut Self, self.owner, self.highest_waiter_priority());
+                unsafe {
+                    priority::update_mutex_owner(
+                        self as *mut Self,
+                        self.owner,
+                        self.highest_waiter_priority(),
+                    );
+                }
                 priority::recompute_task_priority(current);
                 true
             } else {
@@ -56,9 +62,13 @@ impl Mutex {
                     });
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed lock cannot time out"),
-                TaskWakeReason::Semaphore => unreachable!("mutex waiter woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("mutex waiter woke with semaphore reason")
+                }
                 TaskWakeReason::Queue => unreachable!("mutex waiter woke with queue reason"),
-                TaskWakeReason::EventFlags => unreachable!("mutex waiter woke with event flag reason"),
+                TaskWakeReason::EventFlags => {
+                    unreachable!("mutex waiter woke with event flag reason")
+                }
             }
         }
     }
@@ -73,7 +83,8 @@ impl Mutex {
                 return true;
             }
 
-            let current = scheduler::current_task_id().expect("lock_until called without running task");
+            let current =
+                scheduler::current_task_id().expect("lock_until called without running task");
             sync::with(|_| {
                 assert_ne!(self.owner, Some(current), "mutex lock is not recursive");
                 self.enqueue_waiter(current)
@@ -100,9 +111,13 @@ impl Mutex {
                         self.refresh_owner_inheritance();
                     });
                 }
-                TaskWakeReason::Semaphore => unreachable!("mutex waiter woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("mutex waiter woke with semaphore reason")
+                }
                 TaskWakeReason::Queue => unreachable!("mutex waiter woke with queue reason"),
-                TaskWakeReason::EventFlags => unreachable!("mutex waiter woke with event flag reason"),
+                TaskWakeReason::EventFlags => {
+                    unreachable!("mutex waiter woke with event flag reason")
+                }
             }
         }
     }
@@ -116,14 +131,26 @@ impl Mutex {
                 // Ownership transfers directly to the selected waiter before it
                 // runs so no third task can steal the mutex in between.
                 self.owner = Some(task_id);
-                priority::update_mutex_owner(self as *mut Self, self.owner, self.highest_waiter_priority());
+                unsafe {
+                    priority::update_mutex_owner(
+                        self as *mut Self,
+                        self.owner,
+                        self.highest_waiter_priority(),
+                    );
+                }
                 priority::recompute_task_priority(current);
                 priority::recompute_task_priority(task_id);
                 scheduler::wake_task(task_id, TaskWakeReason::Mutex);
                 true
             } else {
                 self.owner = None;
-                priority::update_mutex_owner(self as *mut Self, None, scheduler::IDLE_TASK_PRIORITY);
+                unsafe {
+                    priority::update_mutex_owner(
+                        self as *mut Self,
+                        None,
+                        scheduler::IDLE_TASK_PRIORITY,
+                    );
+                }
                 priority::recompute_task_priority(current);
                 true
             }
@@ -141,7 +168,12 @@ impl Mutex {
     }
 
     fn enqueue_waiter(&mut self, task_id: TaskId) -> Result<(), ()> {
-        if self.waiters.iter().flatten().any(|waiter| *waiter == task_id) {
+        if self
+            .waiters
+            .iter()
+            .flatten()
+            .any(|waiter| *waiter == task_id)
+        {
             return Ok(());
         }
 
@@ -204,7 +236,13 @@ impl Mutex {
 
     fn refresh_owner_inheritance(&mut self) {
         if let Some(owner) = self.owner {
-            priority::update_mutex_owner(self as *mut Self, Some(owner), self.highest_waiter_priority());
+            unsafe {
+                priority::update_mutex_owner(
+                    self as *mut Self,
+                    Some(owner),
+                    self.highest_waiter_priority(),
+                );
+            }
             priority::recompute_task_priority(owner);
         }
     }

@@ -40,7 +40,8 @@ impl<T, const N: usize> MessageQueue<T, N> {
                 Err(returned) => value = returned,
             }
 
-            let current = scheduler::current_task_id().expect("queue send called without running task");
+            let current =
+                scheduler::current_task_id().expect("queue send called without running task");
             sync::with(|_| {
                 enqueue_waiter(&mut self.send_waiters, current)
                     .expect("queue send waiter list exhausted");
@@ -56,9 +57,13 @@ impl<T, const N: usize> MessageQueue<T, N> {
                     });
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed queue send cannot time out"),
-                TaskWakeReason::Semaphore => unreachable!("queue sender woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("queue sender woke with semaphore reason")
+                }
                 TaskWakeReason::Mutex => unreachable!("queue sender woke with mutex reason"),
-                TaskWakeReason::EventFlags => unreachable!("queue sender woke with event flag reason"),
+                TaskWakeReason::EventFlags => {
+                    unreachable!("queue sender woke with event flag reason")
+                }
             }
         }
     }
@@ -74,7 +79,8 @@ impl<T, const N: usize> MessageQueue<T, N> {
                 Err(returned) => value = returned,
             }
 
-            let current = scheduler::current_task_id().expect("queue send_until called without running task");
+            let current =
+                scheduler::current_task_id().expect("queue send_until called without running task");
             sync::with(|_| {
                 enqueue_waiter(&mut self.send_waiters, current)
                     .expect("queue send waiter list exhausted");
@@ -97,9 +103,13 @@ impl<T, const N: usize> MessageQueue<T, N> {
                         remove_waiter(&mut self.send_waiters, current);
                     });
                 }
-                TaskWakeReason::Semaphore => unreachable!("queue sender woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("queue sender woke with semaphore reason")
+                }
                 TaskWakeReason::Mutex => unreachable!("queue sender woke with mutex reason"),
-                TaskWakeReason::EventFlags => unreachable!("queue sender woke with event flag reason"),
+                TaskWakeReason::EventFlags => {
+                    unreachable!("queue sender woke with event flag reason")
+                }
             }
         }
     }
@@ -122,7 +132,8 @@ impl<T, const N: usize> MessageQueue<T, N> {
                 return value;
             }
 
-            let current = scheduler::current_task_id().expect("queue receive called without running task");
+            let current =
+                scheduler::current_task_id().expect("queue receive called without running task");
             sync::with(|_| {
                 enqueue_waiter(&mut self.recv_waiters, current)
                     .expect("queue receive waiter list exhausted");
@@ -138,9 +149,13 @@ impl<T, const N: usize> MessageQueue<T, N> {
                     });
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed queue receive cannot time out"),
-                TaskWakeReason::Semaphore => unreachable!("queue receiver woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("queue receiver woke with semaphore reason")
+                }
                 TaskWakeReason::Mutex => unreachable!("queue receiver woke with mutex reason"),
-                TaskWakeReason::EventFlags => unreachable!("queue receiver woke with event flag reason"),
+                TaskWakeReason::EventFlags => {
+                    unreachable!("queue receiver woke with event flag reason")
+                }
             }
         }
     }
@@ -155,7 +170,8 @@ impl<T, const N: usize> MessageQueue<T, N> {
                 return Some(value);
             }
 
-            let current = scheduler::current_task_id().expect("queue receive_until called without running task");
+            let current = scheduler::current_task_id()
+                .expect("queue receive_until called without running task");
             sync::with(|_| {
                 enqueue_waiter(&mut self.recv_waiters, current)
                     .expect("queue receive waiter list exhausted");
@@ -178,9 +194,13 @@ impl<T, const N: usize> MessageQueue<T, N> {
                         remove_waiter(&mut self.recv_waiters, current);
                     });
                 }
-                TaskWakeReason::Semaphore => unreachable!("queue receiver woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("queue receiver woke with semaphore reason")
+                }
                 TaskWakeReason::Mutex => unreachable!("queue receiver woke with mutex reason"),
-                TaskWakeReason::EventFlags => unreachable!("queue receiver woke with event flag reason"),
+                TaskWakeReason::EventFlags => {
+                    unreachable!("queue receiver woke with event flag reason")
+                }
             }
         }
     }

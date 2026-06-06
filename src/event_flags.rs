@@ -56,7 +56,8 @@ impl EventFlags {
                 return bits;
             }
 
-            let current = scheduler::current_task_id().expect("event wait called without running task");
+            let current =
+                scheduler::current_task_id().expect("event wait called without running task");
             sync::with(|_| {
                 self.enqueue_waiter(current)
                     .expect("event flag waiter list exhausted");
@@ -72,7 +73,9 @@ impl EventFlags {
                     });
                 }
                 TaskWakeReason::Timeout => unreachable!("untimed event wait cannot time out"),
-                TaskWakeReason::Semaphore => unreachable!("event waiter woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("event waiter woke with semaphore reason")
+                }
                 TaskWakeReason::Mutex => unreachable!("event waiter woke with mutex reason"),
                 TaskWakeReason::Queue => unreachable!("event waiter woke with queue reason"),
             }
@@ -95,7 +98,8 @@ impl EventFlags {
                 return Some(bits);
             }
 
-            let current = scheduler::current_task_id().expect("event wait_until called without running task");
+            let current =
+                scheduler::current_task_id().expect("event wait_until called without running task");
             sync::with(|_| {
                 self.enqueue_waiter(current)
                     .expect("event flag waiter list exhausted");
@@ -118,7 +122,9 @@ impl EventFlags {
                         self.remove_waiter(current);
                     });
                 }
-                TaskWakeReason::Semaphore => unreachable!("event waiter woke with semaphore reason"),
+                TaskWakeReason::Semaphore => {
+                    unreachable!("event waiter woke with semaphore reason")
+                }
                 TaskWakeReason::Mutex => unreachable!("event waiter woke with mutex reason"),
                 TaskWakeReason::Queue => unreachable!("event waiter woke with queue reason"),
             }
@@ -152,7 +158,12 @@ impl EventFlags {
     fn enqueue_waiter(&mut self, task_id: TaskId) -> Result<(), ()> {
         // A task can retry after a failed block attempt, so suppress duplicate
         // queue entries if its old waiter slot has not been removed yet.
-        if self.waiters.iter().flatten().any(|waiter| *waiter == task_id) {
+        if self
+            .waiters
+            .iter()
+            .flatten()
+            .any(|waiter| *waiter == task_id)
+        {
             return Ok(());
         }
 
