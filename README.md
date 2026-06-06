@@ -1,3 +1,5 @@
+[![CI](https://github.com/x0prc/SeRTOS/actions/workflows/ci.yml/badge.svg)](https://github.com/x0prc/SeRTOS/actions/workflows/ci.yml)
+
 # SeRTOS
 Lightweight Cortex-M RTOS with preemptive scheduling, IPC primitives, and built-in reliability hooks.
 
